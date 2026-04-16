@@ -7,8 +7,6 @@ import pandas as pd
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -18,7 +16,6 @@ from dotenv import load_dotenv
 # =========================
 load_dotenv()
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-print("API KEY:", TMDB_API_KEY)
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG_500 = "https://image.tmdb.org/t/p/w500"
@@ -51,9 +48,6 @@ DF_PATH = os.path.join(BASE_DIR, "df.pkl")
 INDICES_PATH = os.path.join(BASE_DIR, "indices.pkl")
 TFIDF_MATRIX_PATH = os.path.join(BASE_DIR, "tfidf_matrix.pkl")
 TFIDF_PATH = os.path.join(BASE_DIR, "tfidf.pkl")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 df: Optional[pd.DataFrame] = None
 indices_obj: Any = None
@@ -97,34 +91,6 @@ class SearchBundleResponse(BaseModel):
     genre_recommendations: List[TMDBMovieCard]
 
 
-class LocalMovieCard(BaseModel):
-    tmdb_id: Optional[int] = None
-    title: str
-    poster_url: Optional[str] = None
-    release_date: Optional[str] = None
-    vote_average: Optional[float] = None
-    popularity: Optional[float] = None
-
-
-class LocalMovieDetails(BaseModel):
-    tmdb_id: Optional[int] = None
-    title: str
-    overview: Optional[str] = None
-    release_date: Optional[str] = None
-    poster_url: Optional[str] = None
-    backdrop_url: Optional[str] = None
-    genres: List[dict] = []
-    vote_average: Optional[float] = None
-    popularity: Optional[float] = None
-
-
-class LocalSearchBundleResponse(BaseModel):
-    source: str
-    movie_details: LocalMovieDetails
-    tfidf_recommendations: List[LocalMovieCard]
-    genre_recommendations: List[LocalMovieCard]
-
-
 # =========================
 # UTILS
 # =========================
@@ -138,86 +104,6 @@ def make_img_url(path: Optional[str]) -> Optional[str]:
     return f"{TMDB_IMG_500}{path}"
 
 
-def _genres_to_dicts(genres_text: Optional[str]) -> List[dict]:
-    if not genres_text:
-        return []
-    return [{"name": g} for g in str(genres_text).split() if g.strip()]
-
-
-def local_card_from_row(row: pd.Series) -> LocalMovieCard:
-    return LocalMovieCard(
-        tmdb_id=None,
-        title=str(row.get("title") or ""),
-        vote_average=float(row["vote_average"]) if pd.notna(row.get("vote_average")) else None,
-        popularity=float(row["popularity"]) if pd.notna(row.get("popularity")) else None,
-    )
-
-
-def local_details_from_row(row: pd.Series) -> LocalMovieDetails:
-    return LocalMovieDetails(
-        tmdb_id=None,
-        title=str(row.get("title") or ""),
-        overview=row.get("overview"),
-        genres=_genres_to_dicts(row.get("genres")),
-        vote_average=float(row["vote_average"]) if pd.notna(row.get("vote_average")) else None,
-        popularity=float(row["popularity"]) if pd.notna(row.get("popularity")) else None,
-    )
-
-
-def get_local_row_by_title(title: str) -> pd.Series:
-    global df
-    if df is None:
-        raise HTTPException(status_code=500, detail="Local dataset not loaded")
-
-    mask = df["title"].astype(str).str.strip().str.lower() == _norm_title(title)
-    matches = df[mask]
-    if matches.empty:
-        raise HTTPException(status_code=404, detail=f"Movie not found in local dataset: '{title}'")
-    return matches.iloc[0]
-
-
-def local_search_cards(query: str, limit: int = 24) -> List[LocalMovieCard]:
-    global df
-    if df is None:
-        raise HTTPException(status_code=500, detail="Local dataset not loaded")
-
-    query_norm = _norm_title(query)
-    if not query_norm:
-        return []
-
-    matches = df[df["title"].astype(str).str.lower().str.contains(query_norm, na=False)].copy()
-    if matches.empty:
-        return []
-
-    matches = matches.sort_values(by=["popularity", "vote_average"], ascending=False).head(limit)
-    return [local_card_from_row(row) for _, row in matches.iterrows()]
-
-
-def local_home_cards(limit: int = 24) -> List[LocalMovieCard]:
-    global df
-    if df is None:
-        raise HTTPException(status_code=500, detail="Local dataset not loaded")
-
-    ranked = df.sort_values(by=["popularity", "vote_average"], ascending=False).head(limit)
-    return [local_card_from_row(row) for _, row in ranked.iterrows()]
-
-
-def local_genre_recommendations(title: str, limit: int = 12) -> List[LocalMovieCard]:
-    global df
-    row = get_local_row_by_title(title)
-    genres = [g["name"] for g in _genres_to_dicts(row.get("genres"))]
-    if not genres:
-        return []
-
-    mask = df["genres"].astype(str).apply(lambda x: any(g.lower() in x.lower().split() for g in genres))
-    matches = df[mask & (df["title"].astype(str).str.lower() != _norm_title(title))].copy()
-    if matches.empty:
-        return []
-
-    matches = matches.sort_values(by=["popularity", "vote_average"], ascending=False).head(limit)
-    return [local_card_from_row(row) for _, row in matches.iterrows()]
-
-
 async def tmdb_get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Safe TMDB GET:
@@ -228,23 +114,17 @@ async def tmdb_get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     q["api_key"] = TMDB_API_KEY
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(f"{TMDB_BASE}{path}", params=q)
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=504,
-            detail="TMDB is taking too long to respond right now. Please try again in a moment.",
-        )
     except httpx.RequestError as e:
         raise HTTPException(
             status_code=502,
-            detail="Could not connect to TMDB right now. Check your internet connection or try again shortly.",
+            detail=f"TMDB request error: {type(e).__name__} | {repr(e)}",
         )
 
     if r.status_code != 200:
         raise HTTPException(
-            status_code=502,
-            detail=f"TMDB returned an error ({r.status_code}). Please try again shortly.",
+            status_code=502, detail=f"TMDB error {r.status_code}: {r.text}"
         )
 
     return r.json()
@@ -436,11 +316,6 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/")
-def frontend():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
-
-
 # ---------- HOME FEED (TMDB) ----------
 @app.get("/home", response_model=List[TMDBMovieCard])
 async def home(
@@ -485,50 +360,10 @@ async def tmdb_search(
     return await tmdb_search_movies(query=query, page=page)
 
 
-@app.get("/offline/home", response_model=List[LocalMovieCard])
-def offline_home(limit: int = Query(24, ge=1, le=50)):
-    return local_home_cards(limit=limit)
-
-
-@app.get("/offline/search", response_model=List[LocalMovieCard])
-def offline_search(
-    query: str = Query(..., min_length=1),
-    limit: int = Query(24, ge=1, le=50),
-):
-    return local_search_cards(query=query, limit=limit)
-
-
 # ---------- MOVIE DETAILS (SAFE ROUTE) ----------
 @app.get("/movie/id/{tmdb_id}", response_model=TMDBMovieDetails)
 async def movie_details_route(tmdb_id: int):
     return await tmdb_movie_details(tmdb_id)
-
-
-@app.get("/offline/movie", response_model=LocalSearchBundleResponse)
-def offline_movie_bundle(
-    title: str = Query(..., min_length=1),
-    tfidf_top_n: int = Query(12, ge=1, le=30),
-    genre_limit: int = Query(12, ge=1, le=30),
-):
-    row = get_local_row_by_title(title)
-    details = local_details_from_row(row)
-
-    tfidf_items = []
-    for rec_title, _score in tfidf_recommend_titles(details.title, top_n=tfidf_top_n):
-        try:
-            rec_row = get_local_row_by_title(rec_title)
-            tfidf_items.append(local_card_from_row(rec_row))
-        except HTTPException:
-            continue
-
-    genre_items = local_genre_recommendations(details.title, limit=genre_limit)
-
-    return LocalSearchBundleResponse(
-        source="local",
-        movie_details=details,
-        tfidf_recommendations=tfidf_items,
-        genre_recommendations=genre_items,
-    )
 
 
 # ---------- GENRE RECOMMENDATIONS ----------
