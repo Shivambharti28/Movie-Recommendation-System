@@ -1,0 +1,375 @@
+:root {
+  --panel: rgba(7, 18, 34, 0.72);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #f5f7fb;
+  --muted: #99a7bc;
+  --accent: #ff7b54;
+  --accent-strong: #ff5833;
+  --accent-soft: rgba(255, 123, 84, 0.18);
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  --radius-lg: 28px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(255, 123, 84, 0.2), transparent 28%),
+    radial-gradient(circle at top right, rgba(95, 181, 255, 0.18), transparent 24%),
+    linear-gradient(160deg, #040914 0%, #08111f 35%, #0d1930 100%);
+}
+
+img {
+  display: block;
+  width: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.page-shell {
+  width: min(1280px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 28px;
+  border-radius: 36px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    url("https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=1400&q=80")
+      center/cover;
+  box-shadow: var(--shadow);
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, rgba(3, 8, 18, 0.92), rgba(3, 8, 18, 0.6));
+  pointer-events: none;
+}
+
+.hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.topbar,
+.hero-grid,
+.section-header,
+.search-row,
+.card-body,
+.details-layout,
+.meta-row {
+  display: flex;
+}
+
+.topbar,
+.section-header {
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.topbar h1,
+.section-header h2,
+.section-header h3,
+.movie-name,
+.detail-title {
+  margin: 0;
+}
+
+.topbar h1 {
+  max-width: 10ch;
+  font-family: "Bebas Neue", sans-serif;
+  font-size: clamp(3.5rem, 8vw, 6.8rem);
+  line-height: 0.9;
+  letter-spacing: 0.03em;
+}
+
+.eyebrow,
+.section-kicker {
+  margin: 0 0 12px;
+  color: #ffd6ca;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.hero-grid {
+  margin-top: 28px;
+  gap: 20px;
+  align-items: stretch;
+}
+
+.hero-copy {
+  flex: 1.5;
+}
+
+.control-card {
+  flex: 0.9;
+}
+
+.glass-panel {
+  backdrop-filter: blur(18px);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+}
+
+.hero-text,
+.detail-overview,
+.movie-meta {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.search-panel {
+  margin-top: 24px;
+}
+
+.search-row {
+  gap: 12px;
+}
+
+.input-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+input,
+select {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 14px 16px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+input:focus,
+select:focus {
+  border-color: rgba(255, 123, 84, 0.8);
+  box-shadow: 0 0 0 4px rgba(255, 123, 84, 0.12);
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease,
+    background 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+.inline-button {
+  padding: 13px 18px;
+  font-weight: 800;
+}
+
+.primary-button {
+  min-width: 128px;
+  color: #fff7f4;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+}
+
+.secondary-button {
+  width: 100%;
+  margin-top: 18px;
+  color: #fff7f4;
+  background: linear-gradient(135deg, #3d8bff, #1863dc);
+}
+
+.ghost-button,
+.inline-button,
+.suggestion-chip {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.suggestions {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.suggestion-chip {
+  padding: 12px 14px;
+  text-align: left;
+  border-radius: 16px;
+}
+
+.content {
+  padding-top: 28px;
+}
+
+.content-section {
+  animation: rise 0.45s ease;
+}
+
+.status-banner {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: var(--accent-soft);
+  color: #ffe9e1;
+  border: 1px solid rgba(255, 123, 84, 0.24);
+}
+
+.movie-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 18px;
+}
+
+.movie-card {
+  padding: 12px;
+}
+
+.card-poster-button {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #14223a;
+}
+
+.movie-poster {
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}
+
+.card-body {
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 6px 4px;
+}
+
+.movie-name {
+  font-size: 1rem;
+}
+
+.details-layout {
+  gap: 24px;
+  align-items: stretch;
+  margin-bottom: 28px;
+}
+
+.details-poster,
+.details-content {
+  border-radius: var(--radius-lg);
+}
+
+.details-poster {
+  flex: 0 0 min(320px, 36%);
+  overflow: hidden;
+  background: #122033;
+  box-shadow: var(--shadow);
+}
+
+.details-poster img {
+  height: 100%;
+  object-fit: cover;
+}
+
+.details-content {
+  flex: 1;
+  padding: 28px;
+}
+
+.meta-row {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.meta-pill {
+  padding: 10px 14px;
+  border-radius: 999px;
+  color: #fff0eb;
+  background: rgba(255, 123, 84, 0.14);
+  border: 1px solid rgba(255, 123, 84, 0.2);
+  font-size: 0.88rem;
+}
+
+.recommendation-block {
+  margin-top: 24px;
+}
+
+.backdrop-image {
+  width: 100%;
+  margin-top: 22px;
+  border-radius: 22px;
+  object-fit: cover;
+}
+
+.hidden {
+  display: none;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .hero-grid,
+  .details-layout,
+  .topbar,
+  .section-header,
+  .search-row {
+    flex-direction: column;
+  }
+
+  .topbar h1 {
+    max-width: 100%;
+  }
+
+  .primary-button,
+  .ghost-button {
+    width: 100%;
+  }
+
+  .page-shell {
+    width: min(100% - 20px, 1280px);
+  }
+
+  .hero {
+    padding: 20px;
+  }
+}
