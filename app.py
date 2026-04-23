@@ -1,10 +1,20 @@
+import os
+
 import requests
 import streamlit as st
 
 # =============================
 # CONFIG
 # =============================
-API_BASE = "https://movie-rec-466x.onrender.com" or "http://127.0.0.1:8000"
+API_BASES = []
+for candidate in (
+    os.getenv("API_BASE"),
+    "https://movie-rec-466x.onrender.com",
+    "http://127.0.0.1:8000",
+):
+    if candidate and candidate not in API_BASES:
+        API_BASES.append(candidate.rstrip("/"))
+
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
 st.set_page_config(page_title="Movie Recommender", page_icon="🎬", layout="wide")
@@ -65,13 +75,21 @@ def goto_details(tmdb_id: int):
 # =============================
 @st.cache_data(ttl=30)  # short cache for autocomplete
 def api_get_json(path: str, params: dict | None = None):
-    try:
-        r = requests.get(f"{API_BASE}{path}", params=params, timeout=25)
-        if r.status_code >= 400:
-            return None, f"HTTP {r.status_code}: {r.text[:300]}"
-        return r.json(), None
-    except Exception as e:
-        return None, f"Request failed: {e}"
+    errors = []
+
+    for base_url in API_BASES:
+        try:
+            r = requests.get(f"{base_url}{path}", params=params, timeout=25)
+            if r.status_code >= 500:
+                errors.append(f"{base_url} -> HTTP {r.status_code}")
+                continue
+            if r.status_code >= 400:
+                return None, f"{base_url} -> HTTP {r.status_code}: {r.text[:300]}"
+            return r.json(), None
+        except requests.RequestException as exc:
+            errors.append(f"{base_url} -> {type(exc).__name__}: {exc}")
+
+    return None, " | ".join(errors) if errors else "No API base URL configured."
 
 
 def poster_grid(cards, cols=6, key_prefix="grid"):
