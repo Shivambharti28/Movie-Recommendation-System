@@ -1,84 +1,126 @@
-# Moviesss AI
+# Movie Recommendation System
 
-Moviesss AI is a streaming-style movie recommendation app powered by TMDB and a hybrid NLP recommendation engine.
+This project combines a Streamlit frontend with a FastAPI backend to recommend similar movies. The interface lets users browse TMDB-powered movie cards, open details pages, and view two recommendation tracks:
 
-## Features
+- TF-IDF recommendations from a local content-based model
+- Genre recommendations fetched live from TMDB
 
-- live TMDB-powered movie discovery
-- smooth responsive frontend with hero banners, rails, and search
-- exact movie title matching before free-text recommendation fallback
-- same-language recommendations shown first, then cross-language recommendations
-- industry-aware matching so Bollywood stays mostly Bollywood, Hollywood stays mostly Hollywood, and so on
-- collection-style search intents such as `bollywood`, `hollywood`, `korean cinema`, and `anime movies`
-- zero-build Python backend
+## Architecture
+
+- `app.py`: Streamlit UI for search, details, and recommendation grids
+- `main.py`: FastAPI backend for TMDB lookups and local TF-IDF recommendations
+- `build_artifacts.py`: reproducible pipeline that rebuilds the local pickle artifacts
+- `Movies.ipynb`: notebook walkthrough of the dataset, feature engineering, TF-IDF model, and sanity check
+
+## Recommendation Features
+
+The TF-IDF model does not rely on movie overviews alone. It builds a weighted `tags` field from:
+
+- `overview`
+- `genres`
+- `cast`
+- `director`
+- `keywords`
+
+Before fitting TF-IDF, the text is lowercased, punctuation is removed, English stop words are removed, and each token is lemmatized.
+
+## Dataset Source
+
+The local recommendation artifacts are rebuilt from [The Movies Dataset](https://www.kaggle.com/datasets/rounakbanik/the-movies-dataset) by Rounak Banik on Kaggle.
+
+Required raw files:
+
+- `movies_metadata.csv`
+- `credits.csv`
+- `keywords.csv`
+
+Place those files in `data/raw/` before running the artifact build step.
 
 ## Setup
 
-1. Add your TMDB key in [.env](/Users/shivambharti/Desktop/Moviesss/.env).
-2. Start the app:
+1. Create and activate a virtual environment.
 
 ```bash
-python3 app.py
+python -m venv .venv
 ```
 
-3. Open `http://127.0.0.1:8000`
-
-## Running On Another Port
-
-If port `8000` is already in use, the app will show a friendly message instead of crashing.
-
-To run a second instance:
+On Windows:
 
 ```bash
-PORT=8001 python3 app.py
+.venv\Scripts\activate
 ```
 
-## Search Behavior
+On macOS/Linux:
 
-The app supports three main discovery modes:
+```bash
+source .venv/bin/activate
+```
 
-- movie title search:
-  Finds the exact movie first, then recommends similar movies.
-- collection search:
-  Queries like `bollywood`, `hollywood`, `hindi movies`, `korean cinema`, or `anime movies` return curated live collections.
-- free-text preference search:
-  Queries like `emotional sci-fi survival` or `dark detective thriller` use semantic matching over the local catalog.
+2. Install dependencies.
 
-## Recommendation Behavior
+```bash
+pip install -r requirements.txt
+```
 
-When the app finds a movie anchor, it now orders recommendations like this:
+3. Add your TMDB API key to a local `.env` file.
 
-1. same-language similar movies
-2. different-language similar movies
+```env
+TMDB_API_KEY=your_api_key_here
+```
 
-For example:
+4. Put the raw dataset files in `data/raw/`.
 
-- a Hindi movie shows Hindi recommendations first, then non-Hindi movies
-- an English movie shows English recommendations first, then other languages
+5. Rebuild the local recommendation artifacts.
 
-The recommender also applies industry-aware bias:
+```bash
+python build_artifacts.py
+```
 
-- Bollywood anchors prefer Bollywood titles
-- Hollywood anchors prefer Hollywood titles
-- other cinemas are grouped by language or regional industry where possible
+## Run the Project
 
-## Recommendation Approach
+Start the FastAPI backend:
 
-The ranking blends several signals:
+```bash
+uvicorn main:app --reload
+```
 
-- TMDB recommendations and TMDB similar-movie graph
-- TF-IDF style semantic similarity over title, overview, tagline, genres, cast, directors, and keywords
-- same-language and same-industry prioritization
-- genre, cast, director, and keyword overlap
-- quality weighting from rating, vote volume, and popularity
+In a second terminal, start the Streamlit frontend:
 
-## Data And Caching
+```bash
+streamlit run app.py
+```
 
-- the app stores the cached TMDB catalog in `data/movies_cache.json`
-- refreshing the catalog rebuilds local NLP vectors from the latest snapshot
-- some recommendation flows also use live TMDB lookups for better movie-specific similarity
+Then open:
+
+- FastAPI docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- Streamlit app: [http://127.0.0.1:8501](http://127.0.0.1:8501)
+
+## Sanity Check
+
+The repo includes a simple regression test to make sure the content model still recommends Christopher Nolan neighbors for `Inception`.
+
+Run it with:
+
+```bash
+pytest tests/test_recommendations.py -q
+```
+
+Expected behavior:
+
+- `The Dark Knight` appears in the top 10 recommendations
+- `Interstellar` appears in the top 10 recommendations
+
+## Main API Endpoints
+
+- `/health`: health check
+- `/home`: TMDB home feed cards
+- `/tmdb/search`: TMDB search results for the Streamlit search UI
+- `/movie/id/{tmdb_id}`: movie details from TMDB
+- `/recommend/genre`: genre-based recommendations from TMDB
+- `/recommend/tfidf`: local TF-IDF recommendations by title
+- `/movie/search`: bundled details plus local TF-IDF and genre recommendations
 
 ## Notes
 
-- the backend is intentionally dependency-light and runs with plain `python3`
-- if browser changes do not appear immediately, do a hard refresh to reload the latest frontend assets
+- `.env`, `data/raw/`, local virtual environments, and `nltk_data/` are gitignored on purpose.
+- The included pickle files are generated artifacts, so the model can be reproduced from scratch instead of treated as opaque binaries.

@@ -9,6 +9,5 @@ pytest-cache-files-*/
 .ipynb_checkpoints/
 nltk_data/
 data/raw/
-data/movies_cache.json
 .DS_Store
 Thumbs.db
