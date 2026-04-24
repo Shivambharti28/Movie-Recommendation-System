@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Moviesss AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="ambient ambient-one"></div>
+      <div class="ambient ambient-two"></div>
+
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">M</span>
+          <div>
+            <p class="eyebrow">Cinematic Intelligence</p>
+            <h1>Disney -</h1>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="refreshButton" class="ghost-button">Refresh Catalog</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section id="hero" class="hero loading"></section>
+
+        <section class="explore-panel glass-panel">
+          <div class="panel-copy">
+            <p class="eyebrow">AI Discovery</p>
+            <h2>Ask for the exact mood you want tonight.</h2>
+            <p>
+              NLP-powered matching blends plot semantics, cast, keywords, and audience
+              signals to recommend movies that feel personally curated.
+            </p>
+          </div>
+
+          <div class="search-stack">
+            <div class="search-box">
+              <input
+                id="preferenceInput"
+                type="text"
+                placeholder="Try: emotional sci-fi survival, dark detective thriller, feel-good family animation"
+              />
+              <button id="discoverButton">Discover</button>
+            </div>
+            <div id="genreChips" class="genre-chips"></div>
+          </div>
+        </section>
+
+        <section class="results-layout">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Recommendations</p>
+              <h2 id="resultsTitle">Curated for you</h2>
+            </div>
+            <p id="statusText" class="status-text">Loading catalog...</p>
+          </div>
+          <div id="resultsGrid" class="results-grid"></div>
+        </section>
+
+        <section id="railSections" class="rails"></section>
+      </main>
+    </div>
+
+    <template id="movieCardTemplate">
+      <article class="movie-card">
+        <div class="poster-wrap">
+          <img class="poster" alt="" />
+          <div class="poster-overlay">
+            <button class="mini-button card-recommend">Similar</button>
+            <a class="mini-button card-trailer" target="_blank" rel="noreferrer">Trailer</a>
+          </div>
+        </div>
+        <div class="card-copy">
+          <div class="card-topline">
+            <span class="card-year"></span>
+            <span class="card-rating"></span>
+          </div>
+          <h3 class="card-title"></h3>
+          <p class="card-overview"></p>
+          <div class="meta-row card-genres"></div>
+        </div>
+      </article>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+  </html>
