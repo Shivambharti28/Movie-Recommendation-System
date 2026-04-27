@@ -1,23 +1,16 @@
-import os
-
 import requests
 import streamlit as st
+import plotly.express as px
+import pandas as pd
 
 # =============================
 # CONFIG
 # =============================
-API_BASES = []
-for candidate in (
-    os.getenv("API_BASE"),
-    "https://movie-rec-466x.onrender.com",
-    "http://127.0.0.1:8000",
-):
-    if candidate and candidate not in API_BASES:
-        API_BASES.append(candidate.rstrip("/"))
-
+# app.py
+API_BASE = "http://127.0.0.1:8000"
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
-st.set_page_config(page_title="Movie Recommender", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="Movie Recommender & AI Predictor", page_icon="🎬", layout="wide")
 
 # =============================
 # STYLES (minimal modern)
@@ -38,13 +31,13 @@ st.markdown(
 # STATE + ROUTING (single-file pages)
 # =============================
 if "view" not in st.session_state:
-    st.session_state.view = "home"  # home | details
+    st.session_state.view = "home"  # home | details | predictor
 if "selected_tmdb_id" not in st.session_state:
     st.session_state.selected_tmdb_id = None
 
 qp_view = st.query_params.get("view")
 qp_id = st.query_params.get("id")
-if qp_view in ("home", "details"):
+if qp_view in ("home", "details", "predictor"):
     st.session_state.view = qp_view
 if qp_id:
     try:
@@ -52,6 +45,58 @@ if qp_id:
         st.session_state.view = "details"
     except:
         pass
+
+# Add a navigation button for the Dashboard
+st.sidebar.button("📊 ML Dashboard", on_click=lambda: st.session_state.update(view="dashboard"))
+
+# Render the Dashboard View
+if st.session_state.view == "dashboard":
+    st.title("📊 Movie Analytics & ML Dashboard")
+    st.markdown("Explore how our AI groups similar movies together using K-Means Clustering and PCA.")
+    
+    # Fetch clustering data from FastAPI
+    with st.spinner("Loading AI Clustering Data..."):
+        try:
+            res = requests.get(f"{API_BASE}/api/visualization/clusters")
+            if res.status_code == 200:
+                cluster_data = res.json().get("clusters", [])
+                df_viz = pd.DataFrame(cluster_data)
+                
+                # Convert 'Cluster' column to string so Plotly treats it as a discrete category (colors)
+                df_viz["Cluster"] = df_viz["Cluster"].astype(str)
+                
+                # Create an interactive Scatter Plot
+                fig = px.scatter(
+                    df_viz,
+                    x="PCA1",
+                    y="PCA2",
+                    color="Cluster",
+                    hover_data=["title"],
+                    title="Movie Groupings (K-Means Clustering)",
+                    color_discrete_sequence=px.colors.qualitative.Set1
+                )
+                
+                # Make the chart look nice
+                fig.update_layout(
+                    xaxis_title="Principal Component 1",
+                    yaxis_title="Principal Component 2",
+                    legend_title="Cluster ID"
+                )
+                
+                # Display on the dashboard
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Optional: Show a quick metric
+                st.metric("Total Movies Clustered", len(df_viz))
+                
+            else:
+                st.error("Could not fetch visualization data from the backend.")
+        except Exception as e:
+            st.error(f"Backend connection error: {e}")
+
+
+
+
 
 
 def goto_home():
@@ -61,6 +106,12 @@ def goto_home():
         del st.query_params["id"]
     st.rerun()
 
+def goto_predictor():
+    st.session_state.view = "predictor"
+    st.query_params["view"] = "predictor"
+    if "id" in st.query_params:
+        del st.query_params["id"]
+    st.rerun()
 
 def goto_details(tmdb_id: int):
     st.session_state.view = "details"
@@ -70,27 +121,21 @@ def goto_details(tmdb_id: int):
     st.rerun()
 
 
+
+
+
 # =============================
 # API HELPERS
 # =============================
-@st.cache_data(ttl=30)  # short cache for autocomplete
+@st.cache_data(ttl=30)  
 def api_get_json(path: str, params: dict | None = None):
-    errors = []
-
-    for base_url in API_BASES:
-        try:
-            r = requests.get(f"{base_url}{path}", params=params, timeout=25)
-            if r.status_code >= 500:
-                errors.append(f"{base_url} -> HTTP {r.status_code}")
-                continue
-            if r.status_code >= 400:
-                return None, f"{base_url} -> HTTP {r.status_code}: {r.text[:300]}"
-            return r.json(), None
-        except requests.RequestException as exc:
-            errors.append(f"{base_url} -> {type(exc).__name__}: {exc}")
-
-    return None, " | ".join(errors) if errors else "No API base URL configured."
-
+    try:
+        r = requests.get(f"{API_BASE}{path}", params=params, timeout=25)
+        if r.status_code >= 400:
+            return None, f"HTTP {r.status_code}: {r.text[:300]}"
+        return r.json(), None
+    except Exception as e:
+        return None, f"Request failed: {e}"
 
 def poster_grid(cards, cols=6, key_prefix="grid"):
     if not cards:
@@ -141,21 +186,9 @@ def to_cards_from_tfidf_items(tfidf_items):
     return cards
 
 
-# =============================
-# IMPORTANT: Robust TMDB search parsing
-# Supports BOTH API shapes:
-# 1) raw TMDB: {"results":[{id,title,poster_path,...}]}
-# 2) list cards: [{tmdb_id,title,poster_url,...}]
-# =============================
 def parse_tmdb_search_to_cards(data, keyword: str, limit: int = 24):
-    """
-    Returns:
-      suggestions: list[(label, tmdb_id)]
-      cards: list[{tmdb_id,title,poster_url}]
-    """
     keyword_l = keyword.strip().lower()
 
-    # A) If API returns dict with 'results'
     if isinstance(data, dict) and "results" in data:
         raw = data.get("results") or []
         raw_items = []
@@ -173,12 +206,9 @@ def parse_tmdb_search_to_cards(data, keyword: str, limit: int = 24):
                     "release_date": m.get("release_date", ""),
                 }
             )
-
-    # B) If API returns already as list
     elif isinstance(data, list):
         raw_items = []
         for m in data:
-            # might be {tmdb_id,title,poster_url}
             tmdb_id = m.get("tmdb_id") or m.get("id")
             title = (m.get("title") or "").strip()
             poster_url = m.get("poster_url")
@@ -195,20 +225,15 @@ def parse_tmdb_search_to_cards(data, keyword: str, limit: int = 24):
     else:
         return [], []
 
-    # Word-match filtering (contains)
     matched = [x for x in raw_items if keyword_l in x["title"].lower()]
-
-    # If nothing matched, fallback to raw list (so never blank)
     final_list = matched if matched else raw_items
 
-    # Suggestions = top 10 labels
     suggestions = []
     for x in final_list[:10]:
         year = (x.get("release_date") or "")[:4]
         label = f"{x['title']} ({year})" if year else x["title"]
         suggestions.append((label, x["tmdb_id"]))
 
-    # Cards = top N
     cards = [
         {"tmdb_id": x["tmdb_id"], "title": x["title"], "poster_url": x["poster_url"]}
         for x in final_list[:limit]
@@ -217,15 +242,18 @@ def parse_tmdb_search_to_cards(data, keyword: str, limit: int = 24):
 
 
 # =============================
-# SIDEBAR (clean)
+# SIDEBAR
 # =============================
 with st.sidebar:
-    st.markdown("## 🎬 Menu")
-    if st.button("🏠 Home"):
+    st.markdown("## 🎬 Navigation")
+    if st.button("🏠 Home Recommender"):
         goto_home()
+    
+    if st.button("📈 Blockbuster Predictor"):
+        goto_predictor()
 
     st.markdown("---")
-    st.markdown("### 🏠 Home Feed (only home)")
+    st.markdown("### 🏠 Home Feed Settings")
     home_category = st.selectbox(
         "Category",
         ["trending", "popular", "top_rated", "now_playing", "upcoming"],
@@ -236,52 +264,91 @@ with st.sidebar:
 # =============================
 # HEADER
 # =============================
-st.title("🎬 Movie Recommender")
-st.markdown(
-    "<div class='small-muted'>Type keyword → dropdown suggestions + matching results → open → details + recommendations</div>",
-    unsafe_allow_html=True,
-)
-st.divider()
+if st.session_state.view != "predictor":
+    st.title("🎬 Movie Recommender")
+    st.markdown(
+        "<div class='small-muted'>Type keyword → dropdown suggestions + matching results → open → details + recommendations</div>",
+        unsafe_allow_html=True,
+    )
+    st.divider()
+
+# ==========================================================
+# VIEW: PREDICTOR (New Machine Learning Feature)
+# ==========================================================
+if st.session_state.view == "predictor":
+    st.title("📈 The Blockbuster Predictor")
+    st.markdown("Will your hypothetical movie be a commercial hit? Enter the production details below to find out using our **Random Forest Classification Model**.")
+    st.divider()
+
+    with st.form("hit_predictor_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            budget_input = st.number_input("Production Budget ($)", min_value=1000, value=50000000, step=1000000)
+        with col2:
+            runtime_input = st.number_input("Runtime (minutes)", min_value=10, value=120, step=5)
+        with col3:
+            popularity_input = st.number_input("Expected TMDB Popularity", min_value=0.0, value=20.0, step=1.0)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        submitted = st.form_submit_button("Predict Box Office Fate 🎬", use_container_width=True)
+
+    if submitted:
+        with st.spinner("Consulting the Machine Learning Model..."):
+            try:
+                payload = {
+                    "budget": float(budget_input), 
+                    "runtime": float(runtime_input), 
+                    "popularity": float(popularity_input)
+                }
+                # Call the new FastAPI Endpoint
+                r = requests.post(f"{API_BASE}/predict/hit", json=payload, timeout=10)
+                
+                if r.status_code == 200:
+                    res = r.json()
+                    is_hit = res.get("is_hit")
+                    prob = res.get("probability", 0.0)
+                    msg = res.get("message", "")
+
+                    st.markdown("### Prediction Results")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if is_hit:
+                            st.success(f"### 🎉 {msg}")
+                        else:
+                            st.error(f"### 📉 {msg}")
+                    with c2:
+                        st.metric("Model Confidence (Probability)", f"{prob * 100:.1f}%")
+                        
+                else:
+                    st.error(f"Error from API (Are your ML pickles loaded?): {r.text}")
+            except Exception as e:
+                st.error(f"Failed to connect to API: {e}")
 
 # ==========================================================
 # VIEW: HOME
 # ==========================================================
-if st.session_state.view == "home":
+elif st.session_state.view == "home":
     typed = st.text_input(
         "Search by movie title (keyword)", placeholder="Type: avenger, batman, love..."
     )
 
     st.divider()
 
-    # SEARCH MODE (Autocomplete + word-match results)
+    # SEARCH MODE
     if typed.strip():
-        if len(typed.strip()) < 2:
-            st.caption("Type at least 2 characters for suggestions.")
+        st.markdown(f"### 🧠 AI Keyword Matches for: *'{typed}'*")
+        
+        # Hit your new custom NLP endpoint instead of TMDB!
+        nlp_cards, err = api_get_json("/nlp/keyword_search", params={"query": typed.strip(), "limit": 12})
+        
+        if err:
+            st.error(f"NLP Engine Error: {err}")
+        elif not nlp_cards:
+            st.warning("No semantic matches found. Try different keywords!")
         else:
-            data, err = api_get_json("/tmdb/search", params={"query": typed.strip()})
-
-            if err or data is None:
-                st.error(f"Search failed: {err}")
-            else:
-                suggestions, cards = parse_tmdb_search_to_cards(
-                    data, typed.strip(), limit=24
-                )
-
-                # Dropdown
-                if suggestions:
-                    labels = ["-- Select a movie --"] + [s[0] for s in suggestions]
-                    selected = st.selectbox("Suggestions", labels, index=0)
-
-                    if selected != "-- Select a movie --":
-                        # map label -> id
-                        label_to_id = {s[0]: s[1] for s in suggestions}
-                        goto_details(label_to_id[selected])
-                else:
-                    st.info("No suggestions found. Try another keyword.")
-
-                st.markdown("### Results")
-                poster_grid(cards, cols=grid_cols, key_prefix="search_results")
-
+            # We bypass the 'suggestions' dropdown and just show the AI matches instantly
+            poster_grid(nlp_cards, cols=grid_cols, key_prefix="nlp_results")
+            
         st.stop()
 
     # HOME FEED MODE
@@ -307,7 +374,6 @@ elif st.session_state.view == "details":
             goto_home()
         st.stop()
 
-    # Top bar
     a, b = st.columns([3, 1])
     with a:
         st.markdown("### 📄 Movie Details")
@@ -315,13 +381,11 @@ elif st.session_state.view == "details":
         if st.button("← Back to Home"):
             goto_home()
 
-    # Details (your FastAPI safe route)
     data, err = api_get_json(f"/movie/id/{tmdb_id}")
     if err or not data:
         st.error(f"Could not load details: {err or 'Unknown error'}")
         st.stop()
 
-    # Layout: Poster LEFT, Details RIGHT
     left, right = st.columns([1, 2.4], gap="large")
 
     with left:
@@ -355,7 +419,6 @@ elif st.session_state.view == "details":
     st.divider()
     st.markdown("### ✅ Recommendations")
 
-    # Recommendations (TF-IDF + Genre) via your bundle endpoint
     title = (data.get("title") or "").strip()
     if title:
         bundle, err2 = api_get_json(

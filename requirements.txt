@@ -3,10 +3,10 @@ uvicorn
 python-dotenv
 httpx
 
-numpy==1.26.4
-pandas==2.1.4
+numpy
+pandas
 scipy
 scikit-learn
 
 streamlit
-nltk
+plotly
