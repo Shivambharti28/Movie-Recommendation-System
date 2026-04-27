@@ -209,6 +209,24 @@ async def tmdb_get(path: str, params: Dict[str, Any], retries: int = 3) -> Dict[
             # Wait 1 second before trying again
             await asyncio.sleep(1)
 
+def get_valid_poster(path_val) -> Optional[str]:
+    """Safely parses a poster path from pandas or TMDB and builds a valid URL."""
+    # Catch actual nulls
+    if pd.isna(path_val) or not path_val:
+        return None
+    
+    path_str = str(path_val).strip()
+    
+    # Catch fake string nulls that trick the frontend
+    if path_str.lower() in ("nan", "none", "null", ""):
+        return None
+        
+    # Ensure it has a leading slash so it attaches to the base URL correctly
+    if not path_str.startswith("/"):
+        path_str = "/" + path_str
+        
+    return f"{TMDB_IMG_500}{path_str}"
+
 async def tmdb_cards_from_results(results: List[dict], limit: int = 20) -> List[TMDBMovieCard]:
     out: List[TMDBMovieCard] = []
     for m in (results or [])[:limit]:
@@ -257,51 +275,61 @@ async def attach_tmdb_card_by_title(title: str) -> Optional[TMDBMovieCard]:
 
 
 
-def tfidf_recommend_dynamic(movie_details: TMDBMovieDetails, top_n: int = 10) -> List[Tuple[str, float]]:
-    global df, tfidf_matrix, tfidf_obj
+async def get_fast_recommendations(movie_title: str, movie_details: TMDBMovieDetails, top_n: int = 10) -> List[TFIDFRecItem]:
+    """Fetches recommendations instantly using local data, with targeted API fallback for missing posters."""
+    global df, tfidf_matrix, tfidf_obj, TITLE_TO_IDX
 
-    if df is None or tfidf_matrix is None or tfidf_obj is None:
-        raise HTTPException(status_code=500, detail="TF-IDF resources not loaded")
-
-    # 1. Grab the plot and genres from the live TMDB search
-    overview = movie_details.overview or ""
-    genres = " ".join([g["name"] for g in movie_details.genres])
+    title_key = movie_title.strip().lower()
     
-    # Clean the text exactly like you did in your Jupyter Notebook
-    combined_text = f"{overview} {genres}".lower()
-    combined_text = re.sub(r'[^a-zA-Z\s]', '', combined_text) 
-
-    # 2. Transform this brand new text into an NLP vector
-    try:
+    # 1. SMART LOOKUP
+    if title_key in TITLE_TO_IDX:
+        idx = TITLE_TO_IDX[title_key]
+        query_vec = tfidf_matrix[idx]
+    else:
+        # 2. DYNAMIC VECTORIZATION
+        overview = movie_details.overview or ""
+        genres = " ".join([g["name"] for g in movie_details.genres])
+        combined_text = re.sub(r'[^a-zA-Z\s]', '', f"{overview} {genres}".lower())
         query_vec = tfidf_obj.transform([combined_text])
-    except Exception as e:
-        print(f"Vectorization error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to vectorize text")
+        
+    scores = (tfidf_matrix @ query_vec.T).toarray().ravel()
+    order = np.argsort(-scores)
 
-    # 3. Calculate Cosine Similarity against your entire dataset
-    try:
-        scores = (tfidf_matrix @ query_vec.T).toarray().ravel()
-        order = np.argsort(-scores)
-    except Exception as e:
-        print(f"Matrix math error: {e}")
-        raise HTTPException(status_code=500, detail="Matrix multiplication failed")
-
-    out: List[Tuple[str, float]] = []
+    out = []
     for i in order:
-        try:
-            title_i = str(df.iloc[int(i)]["title"])
-            
-            # Don't recommend the exact same movie back
-            if title_i.strip().lower() == movie_details.title.strip().lower():
-                continue
-                
-            out.append((title_i, float(scores[int(i)])))
-        except Exception:
-            continue
-            
         if len(out) >= top_n:
             break
             
+        row = df.iloc[int(i)]
+        rec_title = str(row["title"])
+        
+        if rec_title.strip().lower() == title_key:
+            continue
+        
+        tmdb_id_raw = row.get("id")
+        if pd.isna(tmdb_id_raw): 
+            continue
+            
+        # Try local poster first using the robust cleaner
+        poster_url = get_valid_poster(row.get("poster_path"))
+
+        # 🛠️ THE FIX: If missing locally, fetch it from TMDB using the ID!
+        if not poster_url:
+            try:
+                fresh_data = await tmdb_movie_details(int(tmdb_id_raw))
+                if fresh_data and fresh_data.poster_url:
+                    poster_url = fresh_data.poster_url
+            except Exception as e:
+                pass # Silently proceed if TMDB also doesn't have it
+
+        card = TMDBMovieCard(
+            tmdb_id=int(tmdb_id_raw),
+            title=rec_title,
+            poster_url=poster_url
+        )
+        
+        out.append(TFIDFRecItem(title=rec_title, score=float(scores[int(i)]), tmdb=card))
+        
     return out
 # =========================
 # ROUTES
@@ -343,20 +371,14 @@ async def search_bundle(query: str = Query(..., min_length=1), tfidf_top_n: int 
     tmdb_id = int(best["id"])
     details = await tmdb_movie_details(tmdb_id)
 
-    tfidf_items: List[TFIDFRecItem] = []
-    
-    # Real NLP TF-IDF Dynamic Vectorization
+    # 🛠️ Notice the 'await' added here since the function is now async
     try:
-        recs = tfidf_recommend_dynamic(details, top_n=tfidf_top_n)
+        tfidf_items = await get_fast_recommendations(best["title"], details, top_n=tfidf_top_n)
     except Exception as e:
-        print(f"⚠️ Dynamic NLP failed for '{details.title}': {e}")
-        recs = []
+        print(f"⚠️ NLP failed for '{details.title}': {e}")
+        tfidf_items = []
 
-    for title, score in recs:
-        card = await attach_tmdb_card_by_title(title)
-        tfidf_items.append(TFIDFRecItem(title=title, score=score, tmdb=card))
-
-    genre_recs: List[TMDBMovieCard] = []
+    genre_recs = []
     if details.genres:
         genre_id = details.genres[0]["id"]
         discover = await tmdb_get("/discover/movie", {"with_genres": genre_id, "language": "en-US", "sort_by": "popularity.desc", "page": 1})
@@ -415,32 +437,40 @@ async def nlp_keyword_search(query: str = Query(...), limit: int = 12):
     if df is None or tfidf_matrix is None or tfidf_obj is None:
         raise HTTPException(status_code=500, detail="NLP models not loaded. Check pickles.")
 
-    # 1. Clean the raw keywords
     clean_query = re.sub(r'[^a-zA-Z\s]', '', query.lower())
     
-    # 2. Convert keywords to a mathematical vector using your trained model
     try:
         query_vec = tfidf_obj.transform([clean_query])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Vectorization failed: {e}")
 
-    # 3. Calculate Cosine Similarity across all 8,963 movie plots
     scores = (tfidf_matrix @ query_vec.T).toarray().ravel()
     order = np.argsort(-scores)
 
     results = []
     for i in order[:limit]:
-        # Only return movies that actually share some semantic similarity
         if scores[i] > 0.0:
             try:
-                title = str(df.iloc[i]["title"])
-                tmdb_id_raw = df.iloc[i].get("id") # Grab TMDB ID straight from your CSV data!
+                row = df.iloc[i]
+                title = str(row["title"])
+                tmdb_id_raw = row.get("id") 
                 
-                # Build the card instantly without asking TMDB for permission
+                # Try local poster first using the robust cleaner
+                poster_url = get_valid_poster(row.get("poster_path"))
+                
+                # 🛠️ THE FIX: Fallback to live TMDB fetch if missing
+                if not poster_url and pd.notna(tmdb_id_raw):
+                    try:
+                        fresh_data = await tmdb_movie_details(int(tmdb_id_raw))
+                        if fresh_data and fresh_data.poster_url:
+                            poster_url = fresh_data.poster_url
+                    except Exception:
+                        pass
+                        
                 results.append(TMDBMovieCard(
                     tmdb_id=int(tmdb_id_raw) if pd.notna(tmdb_id_raw) else 0,
                     title=title,
-                    poster_url=None, # We'll let the frontend handle missing posters gracefully
+                    poster_url=poster_url, 
                 ))
             except Exception:
                 continue
